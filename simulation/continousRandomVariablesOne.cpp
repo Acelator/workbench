@@ -3,6 +3,8 @@
 #include <vector>
 #include <random>
 #include <limits>
+#include <numbers>
+#include <stdexcept>
 
 #include "distributions.h"
 
@@ -127,6 +129,84 @@ double gammaRV_safe(double alpha, double scale)
     }
 }
 
+// Simulate a normal variable using standard rejection technique. It has an expected number of iterations of just 1.32 times.
+// mean is a real number and standard deviation > 0
+double normalRVFirstVersion(double mu, double std)
+{
+    if (!(std > 0.0) || !std::isfinite(mu) || !std::isfinite(std))
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    double Y1, Y2, Y;
+
+    while (true)
+    {
+        Y1 = exponencialRV(1);
+        Y2 = exponencialRV(1);
+        Y = Y2 - (Y1 - 1) * (Y1 - 1) / 2;
+
+        if (Y > 0)
+            break;
+    }
+
+    double U{generate()};
+    double Z = U <= 1.0 / 2 ? Y1 : -Y1;
+
+    return std * Z + mu;
+}
+
+// Simulate a normal variable using Box-Muller transformations.
+// It is quite slow due to having to use trigonometric functions.
+// mean is a real number and standard deviation > 0
+std::array<double, 2> normalRVSecondVersion(double mu, double std)
+{
+    // Improve
+    if (!(std > 0.0) || !std::isfinite(mu) || !std::isfinite(std))
+    {
+        throw std::invalid_argument("mu must be finite and std > 0");
+    }
+
+    double R{std::sqrt(exponencialRV(1. / 2))};
+    double angle{generate() * 2 * std::numbers::pi};
+
+    std::array<double, 2> normals{mu + std * R * std::cos(angle), mu + std * R * std::sin(angle)};
+
+    return normals;
+}
+
+// Faster from a computational standpoint, even though we on average need to iterate the algorithm more times (2.546 random numbers needed on average).
+// Marsaglia polar method
+std::array<double, 2> normalRVSecondVersionImproved(double mu, double std)
+{
+    // Improve
+    if (!(std > 0.0) || !std::isfinite(mu) || !std::isfinite(std))
+    {
+        throw;
+    }
+
+    double U1, U2;
+    double V1, V2, S;
+
+    while (true)
+    {
+        U1 = generate();
+        U2 = generate();
+
+        V1 = 2 * U1 - 1;
+        V2 = 2 * U2 - 1;
+        S = V1 * V1 + V2 * V2;
+
+        if (S <= 1)
+            break;
+    }
+
+    double a = std::sqrt(-2 * std::log(S) / S);
+    std::array<double, 2> normals{mu + std * a * V1, mu + std * a * V2};
+
+    return normals;
+}
+
 int main()
 {
     std::cout << "Simulation of an exponential random variable with rate 4: ";
@@ -140,7 +220,7 @@ int main()
     float a{0};
     for (int i{0}; i < N; i++)
     {
-        a = gammaRV_safe(10, 1.0 / 4);
+        a = normalRVSecondVersion(10, 1.0 / 4)[1];
         // a = exponencialRV(4);
         sum += a;
         minimumValue = std::min(minimumValue, a);
